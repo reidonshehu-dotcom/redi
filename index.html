@@ -114,10 +114,11 @@
             color: var(--text-muted);
         }
 
-        .switch-mode a {
+        .switch-mode span {
             color: var(--primary-color);
-            text-decoration: none;
+            cursor: pointer;
             font-weight: bold;
+            text-decoration: underline;
         }
 
         .hidden {
@@ -251,7 +252,7 @@
             <button id="auth-btn">Hyni</button>
 
             <div class="switch-mode" id="switch-auth-mode">
-                Nuk keni një llogari? <a href="#" id="toggle-auth">Regjistrohuni</a>
+                Nuk keni një llogari? <span id="toggle-auth">Regjistrohuni</span>
             </div>
         </div>
 
@@ -289,9 +290,9 @@
     </div>
 
     <script>
-        // SHËNIM: Vercel do t'i lexojë këto nga Environment Variables që do të vendosim në hapin tjetër
-        const SUPABASE_URL = window.location.hostname === 'localhost' ? '' : '___SUPABASE_URL_PLACEHOLDER___';
-        const SUPABASE_KEY = window.location.hostname === 'localhost' ? '' : '___SUPABASE_KEY_PLACEHOLDER___';
+        // Shënim: Funksionon në modalitetin Demo lokal ose lidhet me Supabase nëse shtohen variablat
+        const SUPABASE_URL = '___SUPABASE_URL_PLACEHOLDER___';
+        const SUPABASE_KEY = '___SUPABASE_KEY_PLACEHOLDER___';
 
         let supabase = null;
         if (SUPABASE_URL && SUPABASE_KEY && !SUPABASE_URL.includes('PLACEHOLDER')) {
@@ -301,16 +302,148 @@
         let isLoginMode = true;
         let currentUser = null;
 
-        // Ndeshjet e para-konfiguruara për testim (Botërori)
         const matchesData = [
             { id: 1, home: "Shqipëria", away: "Italia", time: "2026-06-10T20:00:00Z" },
             { id: 2, home: "Gjermania", away: "Spanja", time: "2026-06-11T18:00:00Z" },
             { id: 3, home: "Brazili", away: "Argjentina", time: "2026-06-15T21:00:00Z" }
         ];
 
-        // Ndryshimi midis Login dhe Register
-        document.getElementById('toggle-auth').addEventListener('click', (e) => {
-            e.preventDefault();
-            isLoginMode = !isLoginMode;
-            document.getElementById('auth-title').innerText = isLoginMode ? "Identifikohuni" : "Krijo llogari të re";
-            document.getElementById('register-fields').classList.toggle('hidden', isLogin
+        // Funksioni i rregulluar për ndryshimin e modalitetit
+        function setupToggle() {
+            const toggleBtn = document.getElementById('toggle-auth');
+            if (toggleBtn) {
+                toggleBtn.onclick = function() {
+                    isLoginMode = !isLoginMode;
+                    document.getElementById('auth-title').innerText = isLoginMode ? "Identifikohuni" : "Krijo llogari të re";
+                    document.getElementById('register-fields').classList.toggle('hidden', isLoginMode);
+                    document.getElementById('auth-btn').innerText = isLoginMode ? "Hyni" : "Regjistrohuni";
+                    
+                    const switchContainer = document.getElementById('switch-auth-mode');
+                    if (isLoginMode) {
+                        switchContainer.innerHTML = 'Nuk keni një llogari? <span id="toggle-auth">Regjistrohuni</span>';
+                    } else {
+                        switchContainer.innerHTML = 'Keni një llogari? <span id="toggle-auth">Identifikohuni</span>';
+                    }
+                    setupToggle(); // Rilidh funksionin tek elementi i ri
+                };
+            }
+        }
+        
+        // Nisja fillon këtu
+        setupToggle();
+
+        // Butoni i Autentikimit
+        document.getElementById('auth-btn').addEventListener('click', async () => {
+            const email = document.getElementById('user-email').value;
+            const password = document.getElementById('user-password').value;
+            const fullname = document.getElementById('user-fullname').value;
+
+            if (!email || !password) {
+                alert("Ju lutem plotësoni të gjitha fushat!");
+                return;
+            }
+
+            if (!supabase) {
+                currentUser = { email: email, name: fullname || email.split('@')[0] };
+                showDashboard();
+                return;
+            }
+
+            try {
+                if (isLoginMode) {
+                    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+                    if (error) throw error;
+                    currentUser = data.user;
+                } else {
+                    const { data, error } = await supabase.auth.signUp({
+                        email, password,
+                        options: { data: { full_name: fullname } }
+                    });
+                    if (error) throw error;
+                    currentUser = data.user;
+                    alert("Regjistrimi u krye! Mund të hyni në aplikacion.");
+                }
+                showDashboard();
+            } catch (err) {
+                alert("Gabim: " + err.message);
+            }
+        });
+
+        document.getElementById('logout-btn').addEventListener('click', () => {
+            currentUser = null;
+            document.getElementById('main-app').classList.add('hidden');
+            document.getElementById('auth-card').classList.remove('hidden');
+        });
+
+        function showDashboard() {
+            document.getElementById('auth-card').classList.add('hidden');
+            document.getElementById('main-app').classList.remove('hidden');
+            renderMatches();
+            renderRanking();
+        }
+
+        function switchTab(tab) {
+            document.getElementById('tab-matches').classList.toggle('hidden', tab !== 'matches');
+            document.getElementById('tab-ranking').classList.toggle('hidden', tab !== 'ranking');
+            document.getElementById('nav-matches').classList.toggle('active', tab === 'matches');
+            document.getElementById('nav-ranking').classList.toggle('active', tab === 'ranking');
+        }
+
+        function checkIsLocked(matchTimeStr) {
+            const matchTime = new Date(matchTimeStr);
+            const now = new Date();
+            const hoursDifference = (matchTime - now) / (1000 * 60 * 60);
+            return hoursDifference <= 48;
+        }
+
+        function renderMatches() {
+            const container = document.getElementById('matches-list');
+            container.innerHTML = '';
+
+            matchesData.forEach(match => {
+                const isLocked = checkIsLocked(match.time);
+                const matchDate = new Date(match.time).toLocaleString('sq-AL', { timeZone: 'Europe/Tirane' });
+
+                const matchHtml = `
+                    <div class="match-card ${isLocked ? 'locked' : ''}">
+                        <div class="match-info">
+                            <span>📅 ${matchDate}</span>
+                            ${isLocked ? '<span class="lock-badge">🔒 E bllokuar (48h)</span>' : '<span style="color:green;">🔓 E hapur</span>'}
+                        </div>
+                        <div class="match-teams">
+                            <div class="team home">${match.home}</div>
+                            <div class="inputs">
+                                <input type="number" min="0" id="match-${match.id}-home" ${isLocked ? 'disabled' : ''} placeholder="-">
+                                <span>:</span>
+                                <input type="number" min="0" id="match-${match.id}-away" ${isLocked ? 'disabled' : ''} placeholder="-">
+                            </div>
+                            <div class="team away">${match.away}</div>
+                        </div>
+                        ${!isLocked ? `<button onclick="savePrediction(${match.id})" style="margin-top:10px; padding:6px; font-size:12px;">Ruaj Parashikimin</button>` : ''}
+                    </div>
+                `;
+                container.innerHTML += matchHtml;
+            });
+        }
+
+        function savePrediction(matchId) {
+            const homeScore = document.getElementById(`match-${matchId}-home`).value;
+            const awayScore = document.getElementById(`match-${matchId}-away`).value;
+
+            if (homeScore === '' || awayScore === '') {
+                alert("Ju lutem vendosni rezultatin!");
+                return;
+            }
+            alert(`U ruajt: ${homeScore} - ${awayScore}`);
+        }
+
+        function renderRanking() {
+            const tbody = document.getElementById('ranking-list');
+            tbody.innerHTML = `
+                <tr><td>1</td><td><b>${currentUser ? (currentUser.name || currentUser.email.split('@')[0]) : 'Lojtari'}</b></td><td>0 pikë</td></tr>
+                <tr><td>2</td><td>Olsi Hana</td><td>0 pikë</td></tr>
+            `;
+        }
+    </script>
+</body>
+</html>
